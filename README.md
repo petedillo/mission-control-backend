@@ -20,14 +20,14 @@ Node.js + Express + TypeScript backend for Mission Control. Provides:
 
 ## Tech Stack
 
-- **Runtime**: Node.js 18+
+- **Runtime**: Bun 1.0+
 - **Framework**: Express.js
 - **Language**: TypeScript
 - **Database**: PostgreSQL 14+
 - **LLM Providers**: Ollama (local), Gemini (free tier), Claude (Phase 2)
 - **Real-time**: Server-Sent Events (SSE)
 - **Job Queue**: In-memory (MVP), Bull + Redis (Phase 2)
-- **Testing**: Jest
+- **Testing**: Vitest
 - **Deployment**: Docker Compose (dev), Kubernetes Helm (prod)
 
 ---

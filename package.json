@@ -1,0 +1,64 @@
+{
+  "name": "mission-control-backend",
+  "version": "1.0.0",
+  "description": "LLM-powered homelab management backend API",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "start": "bun run dist/index.js",
+    "test": "bun test",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "typecheck": "bun tsc --noEmit",
+    "db:migrate": "bun run src/db/migrate.ts",
+    "db:migrate:init": "bun run src/db/migrate.ts init",
+    "db:migrate:status": "bun run src/db/migrate.ts status",
+    "db:test": "bun run src/db/test-connection.ts"
+  },
+  "keywords": [
+    "homelab",
+    "kubernetes",
+    "proxmox",
+    "llm",
+    "ai",
+    "automation"
+  ],
+  "author": "Pedro Delgadillo",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.22.1",
+    "cors": "^2.8.6",
+    "helmet": "^7.2.0",
+    "morgan": "^1.10.1",
+    "dotenv": "^16.6.1",
+    "pg": "^8.18.0",
+    "zod": "^3.25.76",
+    "@kubernetes/client-node": "^0.20.0",
+    "@google/generative-ai": "^0.2.1",
+    "axios": "^1.13.4",
+    "pino": "^8.21.0",
+    "pino-pretty": "^10.3.1",
+    "prom-client": "^15.1.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/cors": "^2.8.19",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^20.19.32",
+    "@types/pg": "^8.16.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.1",
+    "vitest": "^1.6.1",
+    "@vitest/ui": "^1.6.1",
+    "@vitest/coverage-v8": "^1.6.1",
+    "typescript": "^5.9.3",
+    "tsx": "^4.21.0",
+    "esbuild-register": "^3.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}

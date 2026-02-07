@@ -1,0 +1,11 @@
+[install]
+# Automatically install peer dependencies
+auto = true
+
+[install.cache]
+# Enable caching for faster installs
+enabled = true
+
+[test]
+# Use vitest for testing
+preload = ["./vitest.config.ts"]

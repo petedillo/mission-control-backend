@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: mission-control-postgres
+    environment:
+      POSTGRES_DB: mission_control
+      POSTGRES_USER: mission_control
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission_control"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mission-control-backend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      LOG_LEVEL: debug
+      
+      # Database
+      DATABASE_URL: postgresql://mission_control:changeme@postgres:5432/mission_control
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mission_control
+      POSTGRES_USER: mission_control
+      POSTGRES_PASSWORD: changeme
+      
+      # Kubernetes (uses local kubeconfig in dev)
+      K8S_IN_CLUSTER: "false"
+      
+      # External services (update these)
+      PROXMOX_HOST: ${PROXMOX_HOST:-https://192.168.50.10:8006}
+      PROXMOX_API_TOKEN: ${PROXMOX_API_TOKEN:-changeme}
+      PROXMOX_VERIFY_SSL: "false"
+      
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus-server.observability-stack:9090}
+      
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama.dev:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
+      
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-changeme}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash-exp}
+      
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-dev-token-changeme}
+      
+      CORS_ORIGINS: "http://localhost:3001,http://localhost:5173"
+    
+    volumes:
+      - ~/.kube/config:/home/bunuser/.kube/config:ro  # Mount kubeconfig for local dev
+      - ./src:/app/src:ro  # Hot reload in dev (if using bun --watch)
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
