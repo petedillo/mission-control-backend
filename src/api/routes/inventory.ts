@@ -5,6 +5,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import type { HostStatus, WorkloadStatus, HealthStatus } from '../../db/types';
+import { KubernetesConnector } from '../../connectors/kubernetes';
 import * as inventory from '../../db/inventory';
 import { logger } from '../../utils/logger';
 
@@ -25,7 +26,7 @@ export async function getInventory(
       inventory.getWorkloads(),
     ]);
 
-    res.json({ hosts, workloads });
+    res.json({ data: { hosts, workloads } });
   } catch (error) {
     logger.error('Failed to get inventory:', error);
     res.status(500).json({
@@ -64,7 +65,7 @@ export async function getHosts(
 
     const hosts = await inventory.getHosts(filters);
 
-    res.json({ hosts });
+    res.json({ data: hosts });
   } catch (error) {
     logger.error('Failed to get hosts:', error);
     res.status(500).json({
@@ -98,7 +99,7 @@ export async function getHostById(
       return;
     }
 
-    res.json({ host });
+    res.json({ data: host });
   } catch (error) {
     logger.error('Failed to get host by ID:', error);
     res.status(500).json({
@@ -141,7 +142,7 @@ export async function getWorkloads(
 
     const workloads = await inventory.getWorkloads(filters);
 
-    res.json({ workloads });
+    res.json({ data: workloads });
   } catch (error) {
     logger.error('Failed to get workloads:', error);
     res.status(500).json({
@@ -175,7 +176,7 @@ export async function getWorkloadById(
       return;
     }
 
-    res.json({ workload });
+    res.json({ data: workload });
   } catch (error) {
     logger.error('Failed to get workload by ID:', error);
     res.status(500).json({
@@ -195,7 +196,7 @@ export interface RefreshResult {
  * POST /api/v1/inventory/refresh
  * Trigger inventory sync from Kubernetes
  */
-export async function refreshInventory(
+export async function syncInventory(
   req: Request,
   res: Response,
   _next: NextFunction
@@ -204,12 +205,31 @@ export async function refreshInventory(
     const { forceSync } = req.body || {};
 
     logger.info('Triggering inventory refresh', { forceSync });
+    const existingConnector = req.app.locals
+      .kubernetesConnector as KubernetesConnector | undefined;
 
-    const result = await inventory.refreshInventory(forceSync);
+    const connector = existingConnector ?? new KubernetesConnector(process.env.KUBECONFIG_PATH);
+
+    if (!existingConnector) {
+      await connector.initialize();
+    }
+
+    const discovered = await connector.discoverAll();
+    const stats = await inventory.syncDiscoveredInventory(discovered);
+
+    logger.info('Inventory sync completed', {
+      ...stats,
+      hostsCount: discovered.hosts.length,
+      workloadsCount: discovered.workloads.length,
+    });
 
     res.json({
-      message: 'Inventory refresh completed',
-      ...result,
+      data: {
+        synced: true,
+        hosts_count: discovered.hosts.length,
+        workloads_count: discovered.workloads.length,
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     logger.error('Failed to refresh inventory:', error);
@@ -218,6 +238,8 @@ export async function refreshInventory(
     });
   }
 }
+
+export const refreshInventory = syncInventory;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -241,6 +263,7 @@ router.get('/hosts', getHosts);
 router.get('/hosts/:id', getHostById);
 router.get('/workloads', getWorkloads);
 router.get('/workloads/:id', getWorkloadById);
+router.post('/sync', syncInventory);
 router.post('/refresh', refreshInventory);
 
 export default router;
