@@ -26,6 +26,7 @@ vi.mock('../../db/inventory', () => ({
   getWorkloads: vi.fn(),
   getWorkloadById: vi.fn(),
   refreshInventory: vi.fn(),
+  syncDiscoveredInventory: vi.fn(),
 }));
 
 // Helper to create mock request/response objects
@@ -34,6 +35,9 @@ function createMockRequestResponse() {
     params: {},
     query: {},
     body: {},
+    app: {
+      locals: {},
+    },
   } as unknown as Request;
 
   const res = {
@@ -86,6 +90,7 @@ async function getMockedInventory() {
     getWorkloads: ReturnType<typeof vi.fn>;
     getWorkloadById: ReturnType<typeof vi.fn>;
     refreshInventory: ReturnType<typeof vi.fn>;
+    syncDiscoveredInventory: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -108,8 +113,10 @@ describe('Inventory API Routes', () => {
       await getInventory(req, res, vi.fn());
 
       expect(res.json).toHaveBeenCalledWith({
-        hosts: mockHosts,
-        workloads: mockWorkloads,
+        data: {
+          hosts: mockHosts,
+          workloads: mockWorkloads,
+        },
       });
       expect(res.status).not.toHaveBeenCalled();
     });
@@ -141,8 +148,10 @@ describe('Inventory API Routes', () => {
       await getInventory(req, res, vi.fn());
 
       expect(res.json).toHaveBeenCalledWith({
-        hosts: [],
-        workloads: [],
+        data: {
+          hosts: [],
+          workloads: [],
+        },
       });
     });
   });
@@ -157,7 +166,7 @@ describe('Inventory API Routes', () => {
 
       await getHosts(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
       expect(res.status).not.toHaveBeenCalled();
     });
 
@@ -172,7 +181,7 @@ describe('Inventory API Routes', () => {
 
       await getHosts(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
     });
 
     it('should filter hosts by type', async () => {
@@ -186,7 +195,7 @@ describe('Inventory API Routes', () => {
 
       await getHosts(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
     });
 
     it('should handle errors when fetching hosts', async () => {
@@ -214,7 +223,7 @@ describe('Inventory API Routes', () => {
 
       await getHostById(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ host: mockHost });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHost });
     });
 
     it('should return 404 when host not found', async () => {
@@ -255,7 +264,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloads(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
       expect(res.status).not.toHaveBeenCalled();
     });
 
@@ -270,7 +279,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloads(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by type', async () => {
@@ -284,7 +293,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloads(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by namespace', async () => {
@@ -300,7 +309,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloads(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by health status', async () => {
@@ -316,7 +325,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloads(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should handle errors when fetching workloads', async () => {
@@ -344,7 +353,7 @@ describe('Inventory API Routes', () => {
 
       await getWorkloadById(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalledWith({ workload: mockWorkload });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkload });
     });
 
     it('should return 404 when workload not found', async () => {
@@ -375,55 +384,56 @@ describe('Inventory API Routes', () => {
     });
   });
 
-  describe('POST /api/v1/inventory/refresh', () => {
-    it('should trigger inventory refresh and return statistics', async () => {
+  describe('POST /api/v1/inventory/sync', () => {
+    it('should trigger inventory sync and return counts', async () => {
       const { req, res } = createMockRequestResponse();
+      const mockHosts = [createMockHost()];
+      const mockWorkloads = [createMockWorkload()];
 
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 2,
-        hostsUpdated: 1,
-        workloadsAdded: 5,
-        workloadsUpdated: 3,
+      const discoverAll = vi.fn().mockResolvedValue({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
       });
 
-      await refreshInventory(req, res, vi.fn());
+      req.app.locals = {
+        kubernetesConnector: { discoverAll },
+      };
 
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.any(String),
-          hostsAdded: 2,
-          hostsUpdated: 1,
-          workloadsAdded: 5,
-          workloadsUpdated: 3,
-        })
-      );
-      expect(res.status).not.toHaveBeenCalled();
-    });
-
-    it('should support forceSync parameter', async () => {
-      const { req, res } = createMockRequestResponse();
-      req.body = { forceSync: true };
-
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 0,
+      const inventory = await getMockedInventory();
+      inventory.syncDiscoveredInventory.mockResolvedValue({
+        hostsAdded: 1,
         hostsUpdated: 0,
-        workloadsAdded: 0,
+        workloadsAdded: 1,
         workloadsUpdated: 0,
       });
 
       await refreshInventory(req, res, vi.fn());
 
-      expect(res.json).toHaveBeenCalled();
+      expect(discoverAll).toHaveBeenCalled();
+      expect(inventory.syncDiscoveredInventory).toHaveBeenCalledWith({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
+      });
+      expect(res.json).toHaveBeenCalledWith({
+        data: {
+          synced: true,
+          hosts_count: 1,
+          workloads_count: 1,
+          timestamp: expect.any(String),
+        },
+      });
+      expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('should handle refresh errors', async () => {
+    it('should handle sync errors', async () => {
       const { req, res } = createMockRequestResponse();
       const error = new Error('Kubernetes connection failed');
 
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockRejectedValue(error);
+      req.app.locals = {
+        kubernetesConnector: {
+          discoverAll: vi.fn().mockRejectedValue(error),
+        },
+      };
 
       await refreshInventory(req, res, vi.fn());
 
@@ -431,29 +441,6 @@ describe('Inventory API Routes', () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.stringContaining('Kubernetes'),
-        })
-      );
-    });
-
-    it('should return 0 counts when no changes detected', async () => {
-      const { req, res } = createMockRequestResponse();
-
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 0,
-        hostsUpdated: 0,
-        workloadsAdded: 0,
-        workloadsUpdated: 0,
-      });
-
-      await refreshInventory(req, res, vi.fn());
-
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          hostsAdded: 0,
-          hostsUpdated: 0,
-          workloadsAdded: 0,
-          workloadsUpdated: 0,
         })
       );
     });
