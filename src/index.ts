@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import { db } from './db/client';
 import { KubernetesConnector } from './connectors/kubernetes';
+import { ProxmoxConnector } from './connectors/proxmox';
 import { syncDiscoveredInventory } from './db/inventory';
 import app from './app';
 
@@ -24,13 +25,38 @@ async function startServer() {
     app.locals.kubernetesConnector = connector;
     logger.info('✅ Kubernetes connector initialized');
 
+    if (
+      process.env.PROXMOX_HOST &&
+      process.env.PROXMOX_TOKEN_ID &&
+      process.env.PROXMOX_TOKEN_SECRET
+    ) {
+      const proxmoxConnector = new ProxmoxConnector();
+      await proxmoxConnector.initialize();
+      app.locals.proxmoxConnector = proxmoxConnector;
+      logger.info('✅ Proxmox connector initialized');
+    } else {
+      logger.info('ℹ️ Proxmox connector skipped (missing credentials)');
+    }
+
     const syncIntervalMs = Number(process.env.INVENTORY_SYNC_INTERVAL_MS || 60000);
     if (syncIntervalMs > 0) {
       setInterval(async () => {
         try {
           logger.info('⏱️ Running scheduled inventory sync');
-          const discovered = await connector.discoverAll();
-          const stats = await syncDiscoveredInventory(discovered);
+          const proxmoxConnector = app.locals
+            .proxmoxConnector as ProxmoxConnector | undefined;
+
+          const [k8sInventory, proxmoxInventory] = await Promise.all([
+            connector.discoverAll(),
+            proxmoxConnector?.discoverAll() ?? Promise.resolve({ hosts: [], workloads: [] }),
+          ]);
+
+          const merged = {
+            hosts: [...k8sInventory.hosts, ...proxmoxInventory.hosts],
+            workloads: [...k8sInventory.workloads, ...proxmoxInventory.workloads],
+          };
+
+          const stats = await syncDiscoveredInventory(merged);
           logger.info('✅ Scheduled inventory sync complete', stats);
         } catch (error) {
           logger.error('Scheduled inventory sync failed', error);

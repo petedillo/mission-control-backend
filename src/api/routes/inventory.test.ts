@@ -425,6 +425,61 @@ describe('Inventory API Routes', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
+    it('should merge Proxmox inventory when available', async () => {
+      const { req, res } = createMockRequestResponse();
+      const mockHosts = [createMockHost()];
+      const mockWorkloads = [createMockWorkload()];
+      const proxmoxHost = createMockHost({
+        id: '55555555-5555-4555-8555-555555555555',
+        name: 'pve-node',
+        type: 'proxmox-node',
+      });
+      const proxmoxWorkload = createMockWorkload({
+        id: '66666666-6666-4666-8666-666666666666',
+        name: 'plex',
+        type: 'proxmox-vm',
+        namespace: 'pve',
+      });
+
+      const discoverAll = vi.fn().mockResolvedValue({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
+      });
+
+      const discoverAllProxmox = vi.fn().mockResolvedValue({
+        hosts: [proxmoxHost],
+        workloads: [proxmoxWorkload],
+      });
+
+      req.app.locals = {
+        kubernetesConnector: { discoverAll },
+        proxmoxConnector: { discoverAll: discoverAllProxmox },
+      };
+
+      const inventory = await getMockedInventory();
+      inventory.syncDiscoveredInventory.mockResolvedValue({
+        hostsAdded: 2,
+        hostsUpdated: 0,
+        workloadsAdded: 2,
+        workloadsUpdated: 0,
+      });
+
+      await refreshInventory(req, res, vi.fn());
+
+      expect(inventory.syncDiscoveredInventory).toHaveBeenCalledWith({
+        hosts: [...mockHosts, proxmoxHost],
+        workloads: [...mockWorkloads, proxmoxWorkload],
+      });
+      expect(res.json).toHaveBeenCalledWith({
+        data: {
+          synced: true,
+          hosts_count: 2,
+          workloads_count: 2,
+          timestamp: expect.any(String),
+        },
+      });
+    });
+
     it('should handle sync errors', async () => {
       const { req, res } = createMockRequestResponse();
       const error = new Error('Kubernetes connection failed');

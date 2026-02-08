@@ -3,9 +3,10 @@
  * Endpoints for listing and managing inventory (hosts and workloads)
  */
 
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Application } from 'express';
 import type { HostStatus, WorkloadStatus, HealthStatus } from '../../db/types';
 import { KubernetesConnector } from '../../connectors/kubernetes';
+import { ProxmoxConnector } from '../../connectors/proxmox';
 import * as inventory from '../../db/inventory';
 import { logger } from '../../utils/logger';
 
@@ -207,6 +208,8 @@ export async function syncInventory(
     logger.info('Triggering inventory refresh', { forceSync });
     const existingConnector = req.app.locals
       .kubernetesConnector as KubernetesConnector | undefined;
+    const existingProxmoxConnector = req.app.locals
+      .proxmoxConnector as ProxmoxConnector | undefined;
 
     const connector = existingConnector ?? new KubernetesConnector(process.env.KUBECONFIG_PATH);
 
@@ -214,20 +217,33 @@ export async function syncInventory(
       await connector.initialize();
     }
 
-    const discovered = await connector.discoverAll();
-    const stats = await inventory.syncDiscoveredInventory(discovered);
+    const [k8sInventory, proxmoxInventory] = await Promise.all([
+      connector.discoverAll(),
+      existingProxmoxConnector
+        ? existingProxmoxConnector.discoverAll()
+        : shouldInitializeProxmox()
+          ? initializeProxmoxConnector(req.app).then((proxmox) => proxmox.discoverAll())
+          : Promise.resolve({ hosts: [], workloads: [] }),
+    ]);
+
+    const merged = {
+      hosts: [...k8sInventory.hosts, ...proxmoxInventory.hosts],
+      workloads: [...k8sInventory.workloads, ...proxmoxInventory.workloads],
+    };
+
+    const stats = await inventory.syncDiscoveredInventory(merged);
 
     logger.info('Inventory sync completed', {
       ...stats,
-      hostsCount: discovered.hosts.length,
-      workloadsCount: discovered.workloads.length,
+        hostsCount: merged.hosts.length,
+        workloadsCount: merged.workloads.length,
     });
 
     res.json({
       data: {
         synced: true,
-        hosts_count: discovered.hosts.length,
-        workloads_count: discovered.workloads.length,
+        hosts_count: merged.hosts.length,
+        workloads_count: merged.workloads.length,
         timestamp: new Date().toISOString(),
       },
     });
@@ -252,6 +268,23 @@ function isValidUUID(uuid: string): boolean {
   const uuidv4Regex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   return uuidv4Regex.test(uuid);
+}
+
+function shouldInitializeProxmox(): boolean {
+  return Boolean(
+    process.env.PROXMOX_HOST &&
+      process.env.PROXMOX_TOKEN_ID &&
+      process.env.PROXMOX_TOKEN_SECRET
+  );
+}
+
+async function initializeProxmoxConnector(
+  app: Application
+): Promise<ProxmoxConnector> {
+  const proxmox = new ProxmoxConnector();
+  await proxmox.initialize();
+  app.locals.proxmoxConnector = proxmox;
+  return proxmox;
 }
 
 // ============================================================================
