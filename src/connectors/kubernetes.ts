@@ -409,11 +409,11 @@ export class KubernetesConnector {
       last_seen_at: new Date(),
       tags: Object.keys(node.metadata?.labels || {}),
       metadata: {
-        capacity: node.status?.capacity,
-        allocatable: node.status?.allocatable,
+        capacity: node.status?.capacity ? JSON.parse(JSON.stringify(node.status.capacity)) : null,
+        allocatable: node.status?.allocatable ? JSON.parse(JSON.stringify(node.status.allocatable)) : null,
         labels: node.metadata?.labels || {},
-        taints: node.spec?.taints || [],
-        conditions: node.status?.conditions || [],
+        taints: JSON.parse(JSON.stringify(node.spec?.taints || [])),
+        conditions: JSON.parse(JSON.stringify(node.status?.conditions || [])),
       },
       created_at: node.metadata?.creationTimestamp || new Date(),
       updated_at: new Date(),
@@ -436,7 +436,7 @@ export class KubernetesConnector {
         containers:
           deployment.spec?.template.spec?.containers.map((c) => ({
             name: c.name,
-            image: c.image,
+            image: c.image || '',
           })) || [],
       },
       health_status: 'unknown',
@@ -469,7 +469,7 @@ export class KubernetesConnector {
         containers:
           statefulset.spec?.template.spec?.containers.map((c) => ({
             name: c.name,
-            image: c.image,
+            image: c.image || '',
           })) || [],
       },
       health_status: 'unknown',
@@ -478,7 +478,7 @@ export class KubernetesConnector {
       metadata: {
         labels: statefulset.metadata?.labels || {},
         annotations: statefulset.metadata?.annotations || {},
-        serviceName: statefulset.spec?.serviceName,
+        serviceName: statefulset.spec?.serviceName || null,
       },
       created_at: statefulset.metadata?.creationTimestamp || new Date(),
       updated_at: new Date(),
@@ -494,20 +494,20 @@ export class KubernetesConnector {
       status: this.extractPodStatus(pod),
       namespace,
       spec: {
-        nodeName: pod.spec?.nodeName,
+        nodeName: pod.spec?.nodeName || null,
         containers:
           pod.spec?.containers.map((c) => ({
             name: c.name,
-            image: c.image,
+            image: c.image || '',
           })) || [],
-        restartPolicy: pod.spec?.restartPolicy,
+        restartPolicy: pod.spec?.restartPolicy || null,
       },
       health_status: 'unknown',
       last_updated_at: pod.metadata?.managedFields?.[0]?.time || new Date(),
       metadata: {
         labels: pod.metadata?.labels || {},
         annotations: pod.metadata?.annotations || {},
-        ownerReferences: pod.metadata?.ownerReferences,
+        ownerReferences: pod.metadata?.ownerReferences ? JSON.parse(JSON.stringify(pod.metadata.ownerReferences)) : null,
       },
       created_at: pod.metadata?.creationTimestamp || new Date(),
       updated_at: new Date(),

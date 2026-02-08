@@ -7,7 +7,7 @@ import type { Host, Workload, HostStatus, WorkloadStatus, HealthStatus } from '.
 import { db } from './client';
 import { logger } from '../utils/logger';
 import { KubernetesConnector } from '../connectors/kubernetes';
-type SqlParam = string | number | boolean | Date | null | Record<string, unknown>;
+type SqlParam = string | number | boolean | Date | null | Record<string, unknown> | unknown[];
 
 // ============================================================================
 // HOST QUERIES
