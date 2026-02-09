@@ -3,6 +3,8 @@ import { logger } from './utils/logger';
 import { db } from './db/client';
 import { KubernetesConnector } from './connectors/kubernetes';
 import { ProxmoxConnector } from './connectors/proxmox';
+import { ArgoCDConnector } from './connectors/argocd';
+import { PrometheusConnector } from './connectors/prometheus';
 import { syncDiscoveredInventory } from './db/inventory';
 import app from './app';
 
@@ -36,6 +38,34 @@ async function startServer() {
       logger.info('✅ Proxmox connector initialized');
     } else {
       logger.info('ℹ️ Proxmox connector skipped (missing credentials)');
+    }
+
+    // Initialize ArgoCD connector (optional)
+    if (ArgoCDConnector.isConfigured()) {
+      const argoCDConnector = new ArgoCDConnector();
+      const connected = await argoCDConnector.testConnection();
+      if (connected) {
+        app.locals.argoCDConnector = argoCDConnector;
+        logger.info('✅ ArgoCD connector initialized');
+      } else {
+        logger.warn('⚠️ ArgoCD connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ ArgoCD connector skipped (missing credentials)');
+    }
+
+    // Initialize Prometheus connector (optional)
+    if (PrometheusConnector.isConfigured()) {
+      const prometheusConnector = new PrometheusConnector();
+      const connected = await prometheusConnector.testConnection();
+      if (connected) {
+        app.locals.prometheusConnector = prometheusConnector;
+        logger.info('✅ Prometheus connector initialized');
+      } else {
+        logger.warn('⚠️ Prometheus connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ Prometheus connector skipped (missing configuration)');
     }
 
     const syncIntervalMs = Number(process.env.INVENTORY_SYNC_INTERVAL_MS || 60000);
