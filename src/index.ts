@@ -5,6 +5,7 @@ import { KubernetesConnector } from './connectors/kubernetes';
 import { ProxmoxConnector } from './connectors/proxmox';
 import { ArgoCDConnector } from './connectors/argocd';
 import { PrometheusConnector } from './connectors/prometheus';
+import { OllamaConnector } from './connectors/ollama';
 import { syncDiscoveredInventory } from './db/inventory';
 import app from './app';
 
@@ -66,6 +67,20 @@ async function startServer() {
       }
     } else {
       logger.info('ℹ️ Prometheus connector skipped (missing configuration)');
+    }
+
+    // Initialize Ollama connector (optional)
+    if (OllamaConnector.isConfigured()) {
+      const ollamaConnector = new OllamaConnector();
+      const connected = await ollamaConnector.testConnection();
+      if (connected) {
+        app.locals.ollamaConnector = ollamaConnector;
+        logger.info('✅ Ollama connector initialized');
+      } else {
+        logger.warn('⚠️ Ollama connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ Ollama connector skipped (missing configuration)');
     }
 
     const syncIntervalMs = Number(process.env.INVENTORY_SYNC_INTERVAL_MS || 60000);

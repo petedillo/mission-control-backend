@@ -78,6 +78,24 @@ export interface Inventory {
   workloads: Workload[];
 }
 
+export interface ProxmoxClusterResource {
+  id: string;
+  type: 'node' | 'qemu' | 'lxc' | 'storage' | 'sdn';
+  node?: string;
+  vmid?: number;
+  name?: string;
+  status?: string;
+  maxcpu?: number;
+  maxmem?: number;
+  maxdisk?: number;
+  cpu?: number;
+  mem?: number;
+  disk?: number;
+  uptime?: number;
+  template?: number;
+  [key: string]: unknown;
+}
+
 export interface ProxmoxConnectorOptions {
   baseUrl?: string;
   tokenId?: string;
@@ -131,8 +149,31 @@ export class ProxmoxConnector {
     return true;
   }
 
+  async testConnection(): Promise<boolean> {
+    try {
+      const client = this.ensureClient();
+      await client.get('/api2/json/version');
+      logger.info('Proxmox connection test successful');
+      return true;
+    } catch (error) {
+      logger.error('Proxmox connection test failed', { error });
+      return false;
+    }
+  }
+
   setConnectionTimeout(ms: number): void {
     this.connectionTimeout = ms;
+  }
+
+  /**
+   * Get all cluster resources in a single call
+   * Uses /cluster/resources — more efficient than per-node iteration
+   */
+  async getClusterResources(type?: 'node' | 'vm' | 'storage'): Promise<ProxmoxClusterResource[]> {
+    const client = this.ensureClient();
+    const params = type ? { type } : {};
+    const response = await client.get('/api2/json/cluster/resources', { params });
+    return (response.data?.data ?? []) as ProxmoxClusterResource[];
   }
 
   async getNodes(): Promise<ProxmoxNode[]> {
@@ -175,6 +216,32 @@ export class ProxmoxConnector {
     const client = this.ensureClient();
     await client.post(`/api2/json/nodes/${node}/lxc/${vmid}/status/restart`);
     return `Restart request sent for LXC ${vmid} on ${node}`;
+  }
+
+  async startLXC(node: string, vmid: number): Promise<string> {
+    const client = this.ensureClient();
+    await client.post(`/api2/json/nodes/${node}/lxc/${vmid}/status/start`);
+    return `Start request sent for LXC ${vmid} on ${node}`;
+  }
+
+  async stopLXC(node: string, vmid: number): Promise<string> {
+    const client = this.ensureClient();
+    await client.post(`/api2/json/nodes/${node}/lxc/${vmid}/status/stop`);
+    return `Stop request sent for LXC ${vmid} on ${node}`;
+  }
+
+  async restartVM(node: string, vmid: number): Promise<string> {
+    const client = this.ensureClient();
+    await client.post(`/api2/json/nodes/${node}/qemu/${vmid}/status/reboot`);
+    return `Restart request sent for VM ${vmid} on ${node}`;
+  }
+
+  static isConfigured(): boolean {
+    return !!(
+      process.env.PROXMOX_HOST &&
+      process.env.PROXMOX_TOKEN_ID &&
+      process.env.PROXMOX_TOKEN_SECRET
+    );
   }
 
   async discoverAll(): Promise<Inventory> {

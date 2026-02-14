@@ -262,12 +262,12 @@ export const refreshInventory = syncInventory;
 // ============================================================================
 
 /**
- * Validate UUID v4 format
+ * Validate UUID format (v4 and v5/deterministic)
  */
 function isValidUUID(uuid: string): boolean {
-  const uuidv4Regex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidv4Regex.test(uuid);
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
 }
 
 function shouldInitializeProxmox(): boolean {
