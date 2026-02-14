@@ -25,12 +25,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined', { stream: morganStream }));
 
-// Routes
-app.use('/', metricsRouter);
-app.use('/metrics', metricsRouter);
-app.use('/health', metricsRouter);
-app.use('/api/v1/inventory', inventoryRouter);
-
 // Root endpoint
 app.get('/', (_req: Request, res: Response) => {
   res.json({
@@ -40,6 +34,10 @@ app.get('/', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// Routes
+app.use(metricsRouter);
+app.use('/api/v1/inventory', inventoryRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
