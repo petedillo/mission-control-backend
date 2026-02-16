@@ -7,7 +7,7 @@ import type { Host, Workload, HostStatus, WorkloadStatus, HealthStatus } from '.
 import { db } from './client';
 import { logger } from '../utils/logger';
 import { KubernetesConnector } from '../connectors/kubernetes';
-type SqlParam = string | number | boolean | Date | null | Record<string, unknown>;
+type SqlParam = string | number | boolean | Date | null | Record<string, unknown> | unknown[];
 
 // ============================================================================
 // HOST QUERIES
@@ -240,6 +240,45 @@ export interface RefreshStats {
   workloadsUpdated: number;
 }
 
+export async function syncDiscoveredInventory(
+  discovered: { hosts: Host[]; workloads: Workload[] }
+): Promise<RefreshStats> {
+  const stats: RefreshStats = {
+    hostsAdded: 0,
+    hostsUpdated: 0,
+    workloadsAdded: 0,
+    workloadsUpdated: 0,
+  };
+
+  return db.transaction(async () => {
+    for (const host of discovered.hosts) {
+      const existing = await getHostById(host.id);
+
+      if (existing) {
+        await updateHost(host.id, host);
+        stats.hostsUpdated++;
+      } else {
+        await createHost(host);
+        stats.hostsAdded++;
+      }
+    }
+
+    for (const workload of discovered.workloads) {
+      const existing = await getWorkloadById(workload.id);
+
+      if (existing) {
+        await updateWorkload(workload.id, workload);
+        stats.workloadsUpdated++;
+      } else {
+        await createWorkload(workload);
+        stats.workloadsAdded++;
+      }
+    }
+
+    return stats;
+  });
+}
+
 export async function refreshInventory(forceSync: boolean = false): Promise<RefreshStats> {
   try {
     logger.info('Starting inventory refresh', { forceSync });
@@ -250,45 +289,10 @@ export async function refreshInventory(forceSync: boolean = false): Promise<Refr
 
     // Discover all inventory
     const inventory = await connector.discoverAll();
+    const stats = await syncDiscoveredInventory(inventory);
 
-    // Use transaction to ensure consistency
-    const stats: RefreshStats = {
-      hostsAdded: 0,
-      hostsUpdated: 0,
-      workloadsAdded: 0,
-      workloadsUpdated: 0,
-    };
-
-    return await db.transaction(async (_client) => {
-      // Process hosts
-      for (const host of inventory.hosts) {
-        const existing = await getHostById(host.id);
-
-        if (existing) {
-          await updateHost(host.id, host);
-          stats.hostsUpdated++;
-        } else {
-          await createHost(host);
-          stats.hostsAdded++;
-        }
-      }
-
-      // Process workloads
-      for (const workload of inventory.workloads) {
-        const existing = await getWorkloadById(workload.id);
-
-        if (existing) {
-          await updateWorkload(workload.id, workload);
-          stats.workloadsUpdated++;
-        } else {
-          await createWorkload(workload);
-          stats.workloadsAdded++;
-        }
-      }
-
-      logger.info('Inventory refresh completed', stats);
-      return stats;
-    });
+    logger.info('Inventory refresh completed', stats);
+    return stats;
   } catch (error) {
     logger.error('Failed to refresh inventory:', error);
     throw error;

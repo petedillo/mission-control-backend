@@ -6,7 +6,7 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { logger } from '../utils/logger.js';
 
-type SqlParam = string | number | boolean | Date | null | Record<string, unknown>;
+type SqlParam = string | number | boolean | Date | null | Record<string, unknown> | unknown[];
 
 interface DbConfig {
   host: string;
@@ -93,7 +93,7 @@ class DatabaseClient {
 
     const start = Date.now();
     try {
-      const result = await this.pool.query<T>(text, params);
+      const result = await this.pool.query<T>(text, params ? [...params] : undefined);
       const duration = Date.now() - start;
 
       logger.debug('Query executed', {

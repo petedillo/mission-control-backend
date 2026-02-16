@@ -26,6 +26,7 @@ vi.mock('../../db/inventory', () => ({
   getWorkloads: vi.fn(),
   getWorkloadById: vi.fn(),
   refreshInventory: vi.fn(),
+  syncDiscoveredInventory: vi.fn(),
 }));
 
 // Helper to create mock request/response objects
@@ -34,6 +35,9 @@ function createMockRequestResponse() {
     params: {},
     query: {},
     body: {},
+    app: {
+      locals: {},
+    },
   } as unknown as Request;
 
   const res = {
@@ -41,7 +45,7 @@ function createMockRequestResponse() {
     json: vi.fn().mockReturnThis(),
   } as unknown as Response;
 
-  const next = vi.fn() as NextFunction;
+  const next = vi.fn() as unknown as NextFunction;
 
   return { req, res, next };
 }
@@ -86,6 +90,7 @@ async function getMockedInventory() {
     getWorkloads: ReturnType<typeof vi.fn>;
     getWorkloadById: ReturnType<typeof vi.fn>;
     refreshInventory: ReturnType<typeof vi.fn>;
+    syncDiscoveredInventory: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -97,7 +102,7 @@ describe('Inventory API Routes', () => {
 
   describe('GET /api/v1/inventory', () => {
     it('should return all hosts and workloads', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const mockHosts = [createMockHost()];
       const mockWorkloads = [createMockWorkload()];
 
@@ -105,23 +110,25 @@ describe('Inventory API Routes', () => {
       inventory.getHosts.mockResolvedValue(mockHosts);
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getInventory(req, res, vi.fn());
+      await getInventory(req, res, next);
 
       expect(res.json).toHaveBeenCalledWith({
-        hosts: mockHosts,
-        workloads: mockWorkloads,
+        data: {
+          hosts: mockHosts,
+          workloads: mockWorkloads,
+        },
       });
       expect(res.status).not.toHaveBeenCalled();
     });
 
     it('should handle database errors gracefully', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const error = new Error('Database connection failed');
 
       const inventory = await getMockedInventory();
       inventory.getHosts.mockRejectedValue(error);
 
-      await getInventory(req, res, vi.fn());
+      await getInventory(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith(
@@ -132,37 +139,39 @@ describe('Inventory API Routes', () => {
     });
 
     it('should return empty arrays when no inventory exists', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
 
       const inventory = await getMockedInventory();
       inventory.getHosts.mockResolvedValue([]);
       inventory.getWorkloads.mockResolvedValue([]);
 
-      await getInventory(req, res, vi.fn());
+      await getInventory(req, res, next);
 
       expect(res.json).toHaveBeenCalledWith({
-        hosts: [],
-        workloads: [],
+        data: {
+          hosts: [],
+          workloads: [],
+        },
       });
     });
   });
 
   describe('GET /api/v1/inventory/hosts', () => {
     it('should return all hosts without filters', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const mockHosts = [createMockHost()];
 
       const inventory = await getMockedInventory();
       inventory.getHosts.mockResolvedValue(mockHosts);
 
-      await getHosts(req, res, vi.fn());
+      await getHosts(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
       expect(res.status).not.toHaveBeenCalled();
     });
 
     it('should filter hosts by status', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { status: 'online' };
 
       const mockHosts = [createMockHost({ status: 'online' })];
@@ -170,13 +179,13 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getHosts.mockResolvedValue(mockHosts);
 
-      await getHosts(req, res, vi.fn());
+      await getHosts(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
     });
 
     it('should filter hosts by type', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { type: 'k8s-node' };
 
       const mockHosts = [createMockHost({ type: 'k8s-node' })];
@@ -184,19 +193,19 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getHosts.mockResolvedValue(mockHosts);
 
-      await getHosts(req, res, vi.fn());
+      await getHosts(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ hosts: mockHosts });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHosts });
     });
 
     it('should handle errors when fetching hosts', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const error = new Error('Database error');
 
       const inventory = await getMockedInventory();
       inventory.getHosts.mockRejectedValue(error);
 
-      await getHosts(req, res, vi.fn());
+      await getHosts(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(500);
     });
@@ -204,7 +213,7 @@ describe('Inventory API Routes', () => {
 
   describe('GET /api/v1/inventory/hosts/:id', () => {
     it('should return a specific host by ID', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: '11111111-1111-4111-8111-111111111111' };
 
       const mockHost = createMockHost();
@@ -212,19 +221,19 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getHostById.mockResolvedValue(mockHost);
 
-      await getHostById(req, res, vi.fn());
+      await getHostById(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ host: mockHost });
+      expect(res.json).toHaveBeenCalledWith({ data: mockHost });
     });
 
     it('should return 404 when host not found', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: '33333333-3333-4333-8333-333333333333' };
 
       const inventory = await getMockedInventory();
       inventory.getHostById.mockResolvedValue(null);
 
-      await getHostById(req, res, vi.fn());
+      await getHostById(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
@@ -233,10 +242,10 @@ describe('Inventory API Routes', () => {
     });
 
     it('should return 400 for invalid UUID format', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: 'invalid-id' };
 
-      await getHostById(req, res, vi.fn());
+      await getHostById(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
@@ -247,20 +256,20 @@ describe('Inventory API Routes', () => {
 
   describe('GET /api/v1/inventory/workloads', () => {
     it('should return all workloads without filters', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const mockWorkloads = [createMockWorkload()];
 
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
       expect(res.status).not.toHaveBeenCalled();
     });
 
     it('should filter workloads by status', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { status: 'running' };
 
       const mockWorkloads = [createMockWorkload({ status: 'running' })];
@@ -268,13 +277,13 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by type', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { type: 'k8s-deployment' };
 
       const mockWorkloads = [createMockWorkload({ type: 'k8s-deployment' })];
@@ -282,13 +291,13 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by namespace', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { namespace: 'kube-system' };
 
       const mockWorkloads = [
@@ -298,13 +307,13 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should filter workloads by health status', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.query = { health_status: 'unhealthy' };
 
       const mockWorkloads = [
@@ -314,19 +323,19 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockResolvedValue(mockWorkloads);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workloads: mockWorkloads });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkloads });
     });
 
     it('should handle errors when fetching workloads', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       const error = new Error('Database error');
 
       const inventory = await getMockedInventory();
       inventory.getWorkloads.mockRejectedValue(error);
 
-      await getWorkloads(req, res, vi.fn());
+      await getWorkloads(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(500);
     });
@@ -334,7 +343,7 @@ describe('Inventory API Routes', () => {
 
   describe('GET /api/v1/inventory/workloads/:id', () => {
     it('should return a specific workload by ID', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: '22222222-2222-4222-8222-222222222222' };
 
       const mockWorkload = createMockWorkload();
@@ -342,19 +351,19 @@ describe('Inventory API Routes', () => {
       const inventory = await getMockedInventory();
       inventory.getWorkloadById.mockResolvedValue(mockWorkload);
 
-      await getWorkloadById(req, res, vi.fn());
+      await getWorkloadById(req, res, next);
 
-      expect(res.json).toHaveBeenCalledWith({ workload: mockWorkload });
+      expect(res.json).toHaveBeenCalledWith({ data: mockWorkload });
     });
 
     it('should return 404 when workload not found', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: '44444444-4444-4444-8444-444444444444' };
 
       const inventory = await getMockedInventory();
       inventory.getWorkloadById.mockResolvedValue(null);
 
-      await getWorkloadById(req, res, vi.fn());
+      await getWorkloadById(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
@@ -363,10 +372,10 @@ describe('Inventory API Routes', () => {
     });
 
     it('should return 400 for invalid UUID format', async () => {
-      const { req, res } = createMockRequestResponse();
+      const { req, res, next } = createMockRequestResponse();
       req.params = { id: 'invalid-uuid' };
 
-      await getWorkloadById(req, res, vi.fn());
+      await getWorkloadById(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
@@ -375,85 +384,118 @@ describe('Inventory API Routes', () => {
     });
   });
 
-  describe('POST /api/v1/inventory/refresh', () => {
-    it('should trigger inventory refresh and return statistics', async () => {
-      const { req, res } = createMockRequestResponse();
+  describe('POST /api/v1/inventory/sync', () => {
+    it('should trigger inventory sync and return counts', async () => {
+      const { req, res, next } = createMockRequestResponse();
+      const mockHosts = [createMockHost()];
+      const mockWorkloads = [createMockWorkload()];
 
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 2,
-        hostsUpdated: 1,
-        workloadsAdded: 5,
-        workloadsUpdated: 3,
+      const discoverAll = vi.fn().mockResolvedValue({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
       });
 
-      await refreshInventory(req, res, vi.fn());
+      req.app.locals = {
+        kubernetesConnector: { discoverAll },
+      };
 
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.any(String),
-          hostsAdded: 2,
-          hostsUpdated: 1,
-          workloadsAdded: 5,
-          workloadsUpdated: 3,
-        })
-      );
-      expect(res.status).not.toHaveBeenCalled();
-    });
-
-    it('should support forceSync parameter', async () => {
-      const { req, res } = createMockRequestResponse();
-      req.body = { forceSync: true };
-
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 0,
+      const inventory = await getMockedInventory();
+      inventory.syncDiscoveredInventory.mockResolvedValue({
+        hostsAdded: 1,
         hostsUpdated: 0,
-        workloadsAdded: 0,
+        workloadsAdded: 1,
         workloadsUpdated: 0,
       });
 
-      await refreshInventory(req, res, vi.fn());
+      await refreshInventory(req, res, next);
 
-      expect(res.json).toHaveBeenCalled();
+      expect(discoverAll).toHaveBeenCalled();
+      expect(inventory.syncDiscoveredInventory).toHaveBeenCalledWith({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
+      });
+      expect(res.json).toHaveBeenCalledWith({
+        data: {
+          synced: true,
+          hosts_count: 1,
+          workloads_count: 1,
+          timestamp: expect.any(String),
+        },
+      });
+      expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('should handle refresh errors', async () => {
-      const { req, res } = createMockRequestResponse();
+    it('should merge Proxmox inventory when available', async () => {
+      const { req, res, next } = createMockRequestResponse();
+      const mockHosts = [createMockHost()];
+      const mockWorkloads = [createMockWorkload()];
+      const proxmoxHost = createMockHost({
+        id: '55555555-5555-4555-8555-555555555555',
+        name: 'pve-node',
+        type: 'proxmox-node',
+      });
+      const proxmoxWorkload = createMockWorkload({
+        id: '66666666-6666-4666-8666-666666666666',
+        name: 'plex',
+        type: 'proxmox-vm',
+        namespace: 'pve',
+      });
+
+      const discoverAll = vi.fn().mockResolvedValue({
+        hosts: mockHosts,
+        workloads: mockWorkloads,
+      });
+
+      const discoverAllProxmox = vi.fn().mockResolvedValue({
+        hosts: [proxmoxHost],
+        workloads: [proxmoxWorkload],
+      });
+
+      req.app.locals = {
+        kubernetesConnector: { discoverAll },
+        proxmoxConnector: { discoverAll: discoverAllProxmox },
+      };
+
+      const inventory = await getMockedInventory();
+      inventory.syncDiscoveredInventory.mockResolvedValue({
+        hostsAdded: 2,
+        hostsUpdated: 0,
+        workloadsAdded: 2,
+        workloadsUpdated: 0,
+      });
+
+      await refreshInventory(req, res, next);
+
+      expect(inventory.syncDiscoveredInventory).toHaveBeenCalledWith({
+        hosts: [...mockHosts, proxmoxHost],
+        workloads: [...mockWorkloads, proxmoxWorkload],
+      });
+      expect(res.json).toHaveBeenCalledWith({
+        data: {
+          synced: true,
+          hosts_count: 2,
+          workloads_count: 2,
+          timestamp: expect.any(String),
+        },
+      });
+    });
+
+    it('should handle sync errors', async () => {
+      const { req, res, next } = createMockRequestResponse();
       const error = new Error('Kubernetes connection failed');
 
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockRejectedValue(error);
+      req.app.locals = {
+        kubernetesConnector: {
+          discoverAll: vi.fn().mockRejectedValue(error),
+        },
+      };
 
-      await refreshInventory(req, res, vi.fn());
+      await refreshInventory(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.stringContaining('Kubernetes'),
-        })
-      );
-    });
-
-    it('should return 0 counts when no changes detected', async () => {
-      const { req, res } = createMockRequestResponse();
-
-        const inventory = await getMockedInventory();
-        inventory.refreshInventory.mockResolvedValue({
-        hostsAdded: 0,
-        hostsUpdated: 0,
-        workloadsAdded: 0,
-        workloadsUpdated: 0,
-      });
-
-      await refreshInventory(req, res, vi.fn());
-
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          hostsAdded: 0,
-          hostsUpdated: 0,
-          workloadsAdded: 0,
-          workloadsUpdated: 0,
         })
       );
     });

@@ -1,64 +1,18 @@
-import express, { Application, Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
-import metricsRouter from './api/routes/metrics';
 import { db } from './db/client';
+import { KubernetesConnector } from './connectors/kubernetes';
+import { ProxmoxConnector } from './connectors/proxmox';
+import { ArgoCDConnector } from './connectors/argocd';
+import { PrometheusConnector } from './connectors/prometheus';
+import { OllamaConnector } from './connectors/ollama';
+import { syncDiscoveredInventory } from './db/inventory';
+import app from './app';
 
 // Load environment variables
 dotenv.config();
 
-const app: Application = express();
 const PORT = process.env.PORT || 3000;
-
-// Morgan HTTP logger integration with Pino
-const morganStream = {
-  write: (message: string) => logger.info(message.trim()),
-};
-
-// Middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGINS?.split(',') || '*',
-  credentials: true
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined', { stream: morganStream }));
-
-// Routes
-app.use('/', metricsRouter);
-app.use('/metrics', metricsRouter);
-app.use('/health', metricsRouter);
-
-// Root endpoint
-app.get('/', (_req: Request, res: Response) => {
-  res.json({
-    name: 'Mission Control Backend API',
-    version: '1.0.0',
-    status: 'running',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// 404 handler
-app.use((req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    path: req.path
-  });
-});
-
-// Error handler
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  logger.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
 
 // Start server
 let server: ReturnType<typeof app.listen>;
@@ -68,6 +22,92 @@ async function startServer() {
     // Initialize database connection
     await db.connect();
     logger.info('✅ Database connection established');
+
+    const connector = new KubernetesConnector(process.env.KUBECONFIG_PATH);
+    await connector.initialize();
+    app.locals.kubernetesConnector = connector;
+    logger.info('✅ Kubernetes connector initialized');
+
+    if (
+      process.env.PROXMOX_HOST &&
+      process.env.PROXMOX_TOKEN_ID &&
+      process.env.PROXMOX_TOKEN_SECRET
+    ) {
+      const proxmoxConnector = new ProxmoxConnector();
+      await proxmoxConnector.initialize();
+      app.locals.proxmoxConnector = proxmoxConnector;
+      logger.info('✅ Proxmox connector initialized');
+    } else {
+      logger.info('ℹ️ Proxmox connector skipped (missing credentials)');
+    }
+
+    // Initialize ArgoCD connector (optional)
+    if (ArgoCDConnector.isConfigured()) {
+      const argoCDConnector = new ArgoCDConnector();
+      const connected = await argoCDConnector.testConnection();
+      if (connected) {
+        app.locals.argoCDConnector = argoCDConnector;
+        logger.info('✅ ArgoCD connector initialized');
+      } else {
+        logger.warn('⚠️ ArgoCD connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ ArgoCD connector skipped (missing credentials)');
+    }
+
+    // Initialize Prometheus connector (optional)
+    if (PrometheusConnector.isConfigured()) {
+      const prometheusConnector = new PrometheusConnector();
+      const connected = await prometheusConnector.testConnection();
+      if (connected) {
+        app.locals.prometheusConnector = prometheusConnector;
+        logger.info('✅ Prometheus connector initialized');
+      } else {
+        logger.warn('⚠️ Prometheus connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ Prometheus connector skipped (missing configuration)');
+    }
+
+    // Initialize Ollama connector (optional)
+    if (OllamaConnector.isConfigured()) {
+      const ollamaConnector = new OllamaConnector();
+      const connected = await ollamaConnector.testConnection();
+      if (connected) {
+        app.locals.ollamaConnector = ollamaConnector;
+        logger.info('✅ Ollama connector initialized');
+      } else {
+        logger.warn('⚠️ Ollama connector failed connection test');
+      }
+    } else {
+      logger.info('ℹ️ Ollama connector skipped (missing configuration)');
+    }
+
+    const syncIntervalMs = Number(process.env.INVENTORY_SYNC_INTERVAL_MS || 60000);
+    if (syncIntervalMs > 0) {
+      setInterval(async () => {
+        try {
+          logger.info('⏱️ Running scheduled inventory sync');
+          const proxmoxConnector = app.locals
+            .proxmoxConnector as ProxmoxConnector | undefined;
+
+          const [k8sInventory, proxmoxInventory] = await Promise.all([
+            connector.discoverAll(),
+            proxmoxConnector?.discoverAll() ?? Promise.resolve({ hosts: [], workloads: [] }),
+          ]);
+
+          const merged = {
+            hosts: [...k8sInventory.hosts, ...proxmoxInventory.hosts],
+            workloads: [...k8sInventory.workloads, ...proxmoxInventory.workloads],
+          };
+
+          const stats = await syncDiscoveredInventory(merged);
+          logger.info('✅ Scheduled inventory sync complete', stats);
+        } catch (error) {
+          logger.error('Scheduled inventory sync failed', error);
+        }
+      }, syncIntervalMs);
+    }
 
     server = app.listen(PORT, () => {
       logger.info(`🚀 Mission Control Backend listening on port ${PORT}`);
