@@ -96,6 +96,19 @@ export interface ProxmoxClusterResource {
   [key: string]: unknown;
 }
 
+export interface ProxmoxLXCConfig {
+  net0?: string;
+  net1?: string;
+  net2?: string;
+  [key: string]: unknown;
+}
+
+export interface NetworkAddresses {
+  lan?: string;
+  public?: string;
+  [key: string]: string | undefined;
+}
+
 export interface ProxmoxConnectorOptions {
   baseUrl?: string;
   tokenId?: string;
@@ -194,6 +207,17 @@ export class ProxmoxConnector {
     return (response.data?.data ?? []) as ProxmoxLXC[];
   }
 
+  async getLXCConfig(node: string, vmid: number): Promise<ProxmoxLXCConfig | null> {
+    try {
+      const client = this.ensureClient();
+      const response = await client.get(`/api2/json/nodes/${node}/lxc/${vmid}/config`);
+      return (response.data?.data ?? null) as ProxmoxLXCConfig | null;
+    } catch (error) {
+      logger.warn(`Failed to fetch LXC config for ${vmid} on ${node}`, { error });
+      return null;
+    }
+  }
+
   async getNodeStatus(node: string): Promise<ProxmoxNodeStatus> {
     const client = this.ensureClient();
     const response = await client.get(`/api2/json/nodes/${node}/status`);
@@ -258,9 +282,20 @@ export class ProxmoxConnector {
 
       const hostId = this.getHostId(node.node);
 
+      // Fetch LXC configs for running containers in parallel
+      const runningLxcs = lxcs.filter(lxc => lxc.status === 'running');
+      const lxcConfigs = await Promise.all(
+        runningLxcs.map(lxc => this.getLXCConfig(node.node, lxc.vmid))
+      );
+      const configMap = new Map(
+        runningLxcs.map((lxc, idx) => [lxc.vmid, lxcConfigs[idx]])
+      );
+
       workloads.push(
         ...vms.map((vm) => this.convertVMToWorkload(vm, node.node, hostId)),
-        ...lxcs.map((lxc) => this.convertLXCToWorkload(lxc, node.node, hostId))
+        ...lxcs.map((lxc) =>
+          this.convertLXCToWorkload(lxc, node.node, hostId, configMap.get(lxc.vmid))
+        )
       );
     }
 
@@ -329,9 +364,12 @@ export class ProxmoxConnector {
   private convertLXCToWorkload(
     lxc: ProxmoxLXC,
     node: string,
-    hostId: string
+    hostId: string,
+    config?: ProxmoxLXCConfig | null
   ): Workload {
     const now = new Date();
+    const addresses = this.parseNetworkAddresses(config ?? null);
+
     return {
       id: this.getWorkloadId(`proxmox-lxc:${node}:${lxc.vmid}`),
       name: lxc.name || `lxc-${lxc.vmid}`,
@@ -349,6 +387,7 @@ export class ProxmoxConnector {
         disk: lxc.disk ?? null,
         maxdisk: lxc.maxdisk ?? null,
         uptime: lxc.uptime ?? null,
+        addresses,
       },
       health_status: lxc.status === 'running' ? 'healthy' : 'unknown',
       last_updated_at: now,
@@ -358,6 +397,54 @@ export class ProxmoxConnector {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  private parseNetworkAddresses(config: ProxmoxLXCConfig | null): NetworkAddresses {
+    const addresses: NetworkAddresses = {};
+
+    if (!config) {
+      return addresses;
+    }
+
+    // Find all network interfaces (net0, net1, net2, ...)
+    const netKeys = Object.keys(config)
+      .filter(key => /^net\d+$/.test(key))
+      .sort();
+
+    for (const netKey of netKeys) {
+      const netConfig = config[netKey];
+      if (typeof netConfig !== 'string') {
+        continue;
+      }
+
+      // Parse "name=eth0,bridge=vmbr0,ip=192.168.1.100/24,gw=192.168.1.1"
+      const parts = netConfig.split(',');
+      const configMap: Record<string, string> = {};
+
+      for (const part of parts) {
+        const [key, value] = part.split('=');
+        if (key && value) {
+          configMap[key.trim()] = value.trim();
+        }
+      }
+
+      const ip = configMap['ip'];
+      if (!ip || ip.toLowerCase() === 'dhcp') {
+        continue;
+      }
+
+      // Strip CIDR notation (192.168.1.100/24 -> 192.168.1.100)
+      const cleanIp = ip.split('/')[0];
+
+      // First interface (net0) -> lan, others keep interface name
+      if (netKey === 'net0') {
+        addresses.lan = cleanIp;
+      } else {
+        addresses[netKey] = cleanIp;
+      }
+    }
+
+    return addresses;
   }
 
   private mapNodeStatus(status?: string): HostStatus {

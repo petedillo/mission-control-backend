@@ -47,11 +47,11 @@ describe('ArgoCDConnector', () => {
       );
     });
 
-    it('should add https:// prefix if missing', () => {
+    it('should add http:// prefix if missing', () => {
       const connector2 = new ArgoCDConnector('argocd.example.com', 'token', true);
       expect(mockedAxios.create).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          baseURL: 'https://argocd.example.com',
+          baseURL: 'http://argocd.example.com',
         })
       );
     });
