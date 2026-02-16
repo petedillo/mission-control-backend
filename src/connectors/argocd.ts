@@ -98,13 +98,14 @@ export class ArgoCDConnector {
   private insecure: boolean;
 
   constructor(server?: string, token?: string, insecure: boolean = true) {
-    this.server = server || process.env.ARGOCD_SERVER || 'argocd-server.argocd:443';
+    this.server = server || process.env.ARGOCD_SERVER || 'http://argocd-server.argocd.svc.cluster.local:8080';
     this.token = token || process.env.ARGOCD_AUTH_TOKEN || '';
     this.insecure = insecure;
 
     // Ensure server has protocol
     if (!this.server.startsWith('http://') && !this.server.startsWith('https://')) {
-      this.server = `https://${this.server}`;
+      // Default to HTTP for in-cluster connections
+      this.server = `http://${this.server}`;
     }
 
     this.client = axios.create({
@@ -114,7 +115,7 @@ export class ArgoCDConnector {
         'Content-Type': 'application/json',
       },
       timeout: 20000,
-      httpsAgent: this.insecure
+      httpsAgent: this.insecure && this.server.startsWith('https://')
         ? new https.Agent({ rejectUnauthorized: false })
         : undefined,
     });
@@ -135,7 +136,15 @@ export class ArgoCDConnector {
       logger.info('ArgoCD connection test successful');
       return true;
     } catch (error) {
-      logger.error('ArgoCD connection test failed', { error });
+      let errorMsg = 'Unknown error';
+      if (error && typeof error === 'object' && 'message' in error) {
+        errorMsg = (error as Error).message;
+      }
+      logger.error('ArgoCD connection test failed', {
+        server: this.server,
+        error: errorMsg,
+        hasToken: !!this.token
+      });
       return false;
     }
   }
