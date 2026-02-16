@@ -370,6 +370,14 @@ export class ProxmoxConnector {
     const now = new Date();
     const addresses = this.parseNetworkAddresses(config ?? null);
 
+    // Convert NetworkAddresses to JsonObject by filtering out undefined values
+    const addressesJson: { [key: string]: string } = {};
+    for (const [key, value] of Object.entries(addresses)) {
+      if (value !== undefined) {
+        addressesJson[key] = value;
+      }
+    }
+
     return {
       id: this.getWorkloadId(`proxmox-lxc:${node}:${lxc.vmid}`),
       name: lxc.name || `lxc-${lxc.vmid}`,
@@ -387,7 +395,7 @@ export class ProxmoxConnector {
         disk: lxc.disk ?? null,
         maxdisk: lxc.maxdisk ?? null,
         uptime: lxc.uptime ?? null,
-        addresses,
+        addresses: addressesJson,
       },
       health_status: lxc.status === 'running' ? 'healthy' : 'unknown',
       last_updated_at: now,
